@@ -1,5 +1,5 @@
 # Dot11Hunter
-A tool to capture MAC addresses, SSID, the **association** between them and the **location** where they are seen. It is built on a Raspberry Pi with a WiFi Dongle working in promiscuous mode.
+A tool to capture MAC addresses, SSID, the **association** between them and the **location** where they are seen.
 
 
 ## Getting Started
