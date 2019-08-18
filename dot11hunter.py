@@ -60,6 +60,8 @@ class Dot11Hunter(Dot11HunterBase):
             self.frame_counters[t] = 0
 
     def dump_log(self):
+        if not self.time_synchronized:
+            return
         logger.info(
             'is using {}% memory, current channel is {}'.format(
                 Dot11HunterUtils.get_mem_used_by_dot11hunter(),
@@ -143,7 +145,7 @@ class Dot11Hunter(Dot11HunterBase):
         self.crnt_location['latitude'] = data['latitude']
         self.crnt_location['timestamp'] = data['timestamp']/1000
         ts_phone = data['timestamp'] / 1000
-        if abs(ts_phone - time.time()) > 10:
+        if abs(ts_phone - time.time()) > 10 and self.time_synchronized is False:
             str_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts_phone))
             cmd = 'date -s "{}"'.format(str_time)
             Dot11HunterUtils.run_cmd(cmd)
@@ -235,6 +237,7 @@ class Dot11Hunter(Dot11HunterBase):
         if isinstance(outs, tuple):
             if 'offset' in outs[0]:
                 result = True
+                self.time_synchronized = True
                 logger.info('ntpdate success.', extra=self.log_extra)
                 return result
         logger.info('ntpdate failed.', extra=self.log_extra)
@@ -247,6 +250,13 @@ class Dot11Hunter(Dot11HunterBase):
         # start sending latest captures and sys status to phone
         RepeatedTimer(func=self.send_latest_captures_sys_status,
                       interval=5).start()
+        # time synchronization
+        is_ntpped = self.ntp()
+        if not is_ntpped and not self.time_synchronized:
+            logger.info('waiting for time synchronization...',
+                        extra=self.log_extra)
+        while not is_ntpped and not self.time_synchronized:
+            time.sleep(1)
         # start channel switch
         self.channel_switch = ChannelSwitch(self.interface)
         self.channel_switch.start()
@@ -254,11 +264,6 @@ class Dot11Hunter(Dot11HunterBase):
         self.handlers = create_handlers(self.frm_queues, self.event_queue)
         for handler in self.handlers:
             handler.start()
-        is_ntpped = self.ntp()
-        if not is_ntpped and not self.time_synchronized:
-            logger.info('waiting for time synchronization...', extra=self.log_extra)
-        while not is_ntpped and not self.time_synchronized:
-            time.sleep(1)
         # start sniffer
         logger.info('start sniffing', extra=self.log_extra)
         scapy.all.conf.iface = self.interface
