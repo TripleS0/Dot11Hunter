@@ -67,7 +67,7 @@ On capture computer:
 3. Run `# python3 dot11hunter.py -i wlan1 ` . If it works, you will see 
 
 4. On Android phone, start Dot11Hunter, search your capture computer and connect to it. If everything works fine, you will see
-
+<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/android_dot11hunter.png">
 
 If every thing works fine, the capture computer and Android phone would show as the pictures.
 
