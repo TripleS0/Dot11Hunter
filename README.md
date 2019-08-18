@@ -65,14 +65,14 @@ On capture computer:
     # airmon-ng start wlan1
     ```
 3. Run `# python3 dot11hunter.py -i wlan1 ` . If it works, you will see 
-<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/capture_computer_start1.png">
+<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/capture_computer_synchronized1.png">
 
 
 4. On Android phone, start Dot11Hunter, search your capture computer and connect to it. If it fine, you will see
 <img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/android_dot11hunter1.png">
 
 If every thing works fine, the capture computer will show 
-<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/capture_computer_synchronized1.png">
+<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/capture_computer_start1.png">
 
 
 ## License
