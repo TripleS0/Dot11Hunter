@@ -4,16 +4,22 @@ from base import Dot11HunterBase, CFG, logger, RepeatedTimer, Dot11HunterUtils
 
 class EventHandler(Dot11HunterBase):
     # Handle event queues to save them in database
-    def __init__(self, event_queue):
+    def __init__(self, event_queue=None, name=None, caches=None,
+                 cache_update_lock=None):
         super().__init__()
-        self.setName('EventHandler')
+        if name:
+            self.setName(name)
+        else:
+            self.setName('EventHandler')
         self.log_extra = {'thread_name': self.getName()}
         self.event_queue = event_queue
+        self.caches = caches
+        self.cache_update_lock = cache_update_lock
         # Cache current records to lower database burden
-        self.mac_cache = dict()
-        self.ssid_cache = dict()
-        self.asocit_cache = dict()
-        self.geo_cache = dict()
+        # self.mac_cache = dict()
+        # self.ssid_cache = dict()
+        # self.asocit_cache = dict()
+        # self.geo_cache = dict()
         self.event_counters = {
             'MAC_new': 0,
             'MAC': 0,
@@ -25,14 +31,11 @@ class EventHandler(Dot11HunterBase):
             'ASSOCIATION': 0
         }
         self.db_conn, self.db_cursor = Dot11HunterUtils.connect_db()
-        self.clear_cache_timer = RepeatedTimer(func=self.clear_cache,
-                                               interval=120)
-        self.clear_cache_timer.start()
+        # self.clear_cache_timer = RepeatedTimer(func=self.clear_cache,
+        #                                        interval=120)
+        # self.clear_cache_timer.start()
 
     def dump_log(self):
-        crnt_size = self.event_queue.qsize()
-        logger.info('buffered {} events'.format(crnt_size),
-                    extra=self.log_extra)
         logger.info('recorded {}/{} MAC, {}/{} SSID, {}/{} GEO, '
                     '{}/{} ASSOCIATION'.format(
                                        self.event_counters['MAC_new'],
@@ -52,57 +55,62 @@ class EventHandler(Dot11HunterBase):
         while True:
             try:
                 while True:
-                    event = self.event_queue.get()
-                    # continue
-                    if event.type == Dot11Event.MAC:
-                        self.event_counters['MAC'] += 1
-                        if self.handle_mac(event):
-                            self.event_counters['MAC_new'] += 1
-                    elif event.type == Dot11Event.SSID:
-                        self.event_counters['SSID'] += 1
-                        if self.handle_ssid(event):
-                            self.event_counters['SSID_new'] += 1
-                    elif event.type == Dot11Event.GEO:
-                        self.event_counters['GEO'] += 1
-                        if self.handle_geo(event):
-                            self.event_counters['GEO_new'] += 1
-                    elif event.type == Dot11Event.ASSOCIATION:
-                        self.event_counters['ASSOCIATION'] += 1
-                        if self.handle_association(event):
-                            self.event_counters['ASSOCIATION_new'] += 1
+                    event_group = self.event_queue.get()
+                    debug_type_seq = []
+                    for event in event_group:
+                        if event.type == Dot11Event.MAC:
+                            self.event_counters['MAC'] += 1
+                            if self.handle_mac(event):
+                                self.event_counters['MAC_new'] += 1
+                        elif event.type == Dot11Event.SSID:
+                            self.event_counters['SSID'] += 1
+                            if self.handle_ssid(event):
+                                self.event_counters['SSID_new'] += 1
+                        elif event.type == Dot11Event.GEO:
+                            self.event_counters['GEO'] += 1
+                            if self.handle_geo(event):
+                                self.event_counters['GEO_new'] += 1
+                        elif event.type == Dot11Event.ASSOCIATION:
+                            self.event_counters['ASSOCIATION'] += 1
+                            if self.handle_association(event):
+                                self.event_counters['ASSOCIATION_new'] += 1
+                        debug_type_seq.append(event.type)
+                    print('{} handled {}'.format(self.getName(), debug_type_seq))
             except Exception as e:
                 logger.critical('{}'.format(str(e)), extra=self.log_extra)
 
-    def clear_cache(self):
-        # Clear cached records
-        # count = 0
-        for cache in zip([self.mac_cache, self.ssid_cache, self.asocit_cache],
-                         ['mac_update_interval', 'ap_update_interval',
-                          'association_update_interval']):
-            for k in list(cache[0].keys()):
-                delta = datetime.now() - cache[0][k]
-                if delta.seconds >= CFG['MYSQL'].getfloat(cache[1]):
-                    del cache[0][k]
+    # def clear_cache(self):
+    #     # Clear cached records
+    #     # count = 0
+    #     for cache in zip([self.mac_cache, self.ssid_cache, self.asocit_cache],
+    #                      ['mac_update_interval', 'ap_update_interval',
+    #                       'association_update_interval']):
+    #         for k in list(cache[0].keys()):
+    #             delta = datetime.now() - cache[0][k]
+    #             if delta.seconds >= CFG['MYSQL'].getfloat(cache[1]):
+    #                 del cache[0][k]
 
-    @staticmethod
-    def is_fresh(key, timestamp, cache, threshold):
-        result = False
-        if key in cache.keys():
-            delta = timestamp - cache[key]
-            # Ignore the event not fresher enough
-            if delta.days < 0 or \
-                    (delta.days >= 0 and delta.seconds <= threshold):
-                return result
-        result = True
-        cache[key] = timestamp
-        return result
+    # @staticmethod
+    # def is_fresh(key, timestamp, cache, threshold):
+    #     result = False
+    #     if key in cache.keys():
+    #         delta = timestamp - cache[key]
+    #         # Ignore the event not fresher enough
+    #         if delta.days < 0 or \
+    #                 (delta.days >= 0 and delta.seconds <= threshold):
+    #             return result
+    #     result = True
+    #     cache[key] = timestamp
+    #     return result
 
     def handle_mac(self, event):
         # Save and update the mac address
         result = False
         mac_addr = int(event.src.replace(':', ''), 16)   # mac is an int
         thold = CFG['MYSQL'].getfloat('mac_update_interval')
-        if not self.is_fresh(mac_addr, event.timestamp, self.mac_cache, thold):
+        if not Dot11HunterUtils.is_cache_fresh(mac_addr, event.timestamp,
+                                               self.caches['mac'], thold,
+                                               self.cache_update_lock):
             return result
         self.db_cursor = self.db_conn.cursor()
         sql = 'SELECT id, count FROM mac WHERE addr=%s'
@@ -140,15 +148,24 @@ class EventHandler(Dot11HunterBase):
         # SSID. Thus, MAC address is preferred.
         result = False
         mac_addr = event.src
-        if mac_addr is not None:
+        # if mac_addr is not None:
+        #     mac_addr = int(event.src.replace(':', ''), 16)
+        #     cache_key = mac_addr
+        # else:
+        #     mac_addr = None
+        #     cache_key = event.ssid
+        if event.origin in ('from_beacon', 'from_probe_resp'):
             mac_addr = int(event.src.replace(':', ''), 16)
             cache_key = mac_addr
-        else:
+        elif event.origin == 'from_probe_req':
             mac_addr = None
             cache_key = event.ssid
         cache_key = (cache_key, event.origin)
         thold = CFG['MYSQL'].getfloat('ap_update_interval')
-        if not self.is_fresh(cache_key, event.timestamp, self.ssid_cache, thold):
+        # if not self.is_fresh(cache_key, event.timestamp, self.ssid_cache, thold):
+        if not Dot11HunterUtils.is_cache_fresh(cache_key, event.timestamp,
+                                               self.caches['ssid'], thold,
+                                               self.cache_update_lock):
             return
         if mac_addr is not None:
             insert_flag = True
@@ -219,7 +236,10 @@ class EventHandler(Dot11HunterBase):
             return result
         mac_addr = int(event.src.replace(':', ''), 16)  # mac is an int
         thold = CFG['MYSQL'].getfloat('geo_update_interval')
-        if not self.is_fresh(mac_addr, event.timestamp, self.geo_cache, thold):
+        # if not self.is_fresh(mac_addr, event.timestamp, self.geo_cache, thold):
+        if not Dot11HunterUtils.is_cache_fresh(mac_addr, event.timestamp,
+                                               self.caches['geo'], thold,
+                                               self.cache_update_lock):
             return result
         sql = 'SELECT id FROM mac WHERE addr=%s'
         self.db_cursor = self.db_conn.cursor()
@@ -310,7 +330,10 @@ class EventHandler(Dot11HunterBase):
         ssid = event.ssid
         sta_id, ap_id = self.get_sta_ap_id(src, dst, ssid)
         thold = CFG['MYSQL'].getfloat('association_update_interval')
-        if not self.is_fresh((sta_id, ap_id), ts, self.asocit_cache, thold):
+        # if not self.is_fresh((sta_id, ap_id), ts, self.asocit_cache, thold):
+        if not Dot11HunterUtils.is_cache_fresh((sta_id, ap_id), ts,
+                                               self.caches['asocit'], thold,
+                                               self.cache_update_lock):
             return
         if not sta_id or not ap_id:
             # logger.warn('STA or AP not in db. src: {}, dst: {}, ssid: {}'

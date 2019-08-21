@@ -5,6 +5,7 @@ import sys
 import queue
 import time
 import scapy
+import threading
 from datetime import datetime
 from scapy.all import Dot11, Dot11FCS
 from handler import create_handlers
@@ -25,6 +26,8 @@ class Dot11Hunter(Dot11HunterBase):
         self.handlers = []
         self.bt_server = None
         self.time_synchronized = False
+        self.cache_update_lock = threading.Lock()
+        self.caches = self.setup_caches()
         self.crnt_location = {'longitude': None, 'latitude': None,
                               'timestamp': None}
         self.frame_counters = dict()  # for sampling
@@ -37,6 +40,7 @@ class Dot11Hunter(Dot11HunterBase):
             'mgmt': 0
         }
         self.parse_arg()
+        # queue of event groups
         self.event_queue = queue.Queue(
             maxsize=CFG['DEFAULT'].getint('event_queue_max_size'))
         self.init_attributes()
@@ -63,9 +67,11 @@ class Dot11Hunter(Dot11HunterBase):
         if not self.time_synchronized:
             return
         logger.info(
-            'is using {}% memory, current channel is {}'.format(
+            'is using {}% memory, current channel is {}, '
+            'buffers {} event groups.'.format(
                 Dot11HunterUtils.get_mem_used_by_dot11hunter(),
-                self.channel_switch.current_channel),
+                self.channel_switch.current_channel,
+                self.event_queue.qsize()),
             extra=self.log_extra)
         logger.info(
             'captured {} beacon, {} probe_req, {} management, {} control, '
@@ -81,6 +87,31 @@ class Dot11Hunter(Dot11HunterBase):
         self.log_frame_counters['mgmt'] = 0
         self.log_frame_counters['ctrl'] = 0
         self.log_frame_counters['data'] = 0
+
+    def setup_caches(self):
+        result = dict()
+        result['mac'] = dict()
+        result['ssid'] = dict()
+        result['asocit'] = dict()
+        result['geo'] = dict()
+        return result
+
+    def clear_cache(self):
+        # Clear cached records
+        count = 0
+        self.cache_update_lock.acquire()
+        for cache in zip([self.caches['mac'], self.caches['ssid'],
+                          self.caches['asocit'], self.caches['geo']],
+                         ['mac_update_interval', 'ap_update_interval',
+                          'association_update_interval',
+                          'geo_update_interval']):
+            for k in list(cache[0].keys()):
+                delta = datetime.now() - cache[0][k]
+                if delta.seconds >= CFG['MYSQL'].getfloat(cache[1]):
+                    del cache[0][k]
+                    count += 1
+        self.cache_update_lock.release()
+        logger.info('cleared {} caches'.format(count), extra=self.log_extra)
 
     def dispatch(self, frame):
         beacon_sample_itvl = 1 / CFG['DOT11'].getfloat('beacon_sample_rate')
@@ -180,7 +211,7 @@ class Dot11Hunter(Dot11HunterBase):
             row = db_cursor.fetchall()
             if row:
                 mac, ssid, date = row[0]
-                if time.time() - date.timestamp() < 60:
+                if time.time() - date.timestamp() < 600:
                     data['association'] = '{} <-> {}'.format(mac, ssid)
                 else:
                     data['association'] = None
@@ -203,7 +234,7 @@ class Dot11Hunter(Dot11HunterBase):
         row = db_cursor.fetchall()
         if row:
             temp_result, date = row[0]
-            if time.time() - date.timestamp() < 60:
+            if time.time() - date.timestamp() < 600:
                 result = temp_result
         return result
 
@@ -257,11 +288,14 @@ class Dot11Hunter(Dot11HunterBase):
                         extra=self.log_extra)
         while not is_ntpped and not self.time_synchronized:
             time.sleep(1)
+        # Clear overdue caches periodically
+        RepeatedTimer(func=self.clear_cache, interval=120).start()
         # start channel switch
         self.channel_switch = ChannelSwitch(self.interface)
         self.channel_switch.start()
         # start handlers
-        self.handlers = create_handlers(self.frm_queues, self.event_queue)
+        self.handlers = create_handlers(self.frm_queues, self.event_queue,
+                                        self.caches, self.cache_update_lock)
         for handler in self.handlers:
             handler.start()
         # start sniffer

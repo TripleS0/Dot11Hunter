@@ -1,5 +1,5 @@
 # Dot11Hunter
-A tool to capture MAC addresses, SSID, the **association** between them and the **location** where they are seen. It is built on a Raspberry Pi with a WiFi Dongle working in promiscuous mode.
+A tool to capture MAC addresses, SSID, the **association** between them and the **location** where they are seen.
 
 
 ## Getting Started
@@ -11,7 +11,7 @@ A tool to capture MAC addresses, SSID, the **association** between them and the 
 * The capture computer should support bluetooth and have a WLAN interface working in promiscuous mode. Recommended one:
     + Raspberry Pi Model 3B+
     + [Kali Linux ARM Images](https://www.offensive-security.com/kali-linux-arm-images/) for Raspberry Pi Foundation
-    + One from [RPi USB Wi-Fi Adapters](https://elinux.org/RPi_USB_Wi-Fi_Adapters)
+    + One of [RPi USB Wi-Fi Adapters](https://elinux.org/RPi_USB_Wi-Fi_Adapters)
 * The Android phone should also support bluetooth and be Internet connected. It runs Dot11Hunter app to provide current location (latitude and longitude) to the capture computer and monitor it.
 * A power bank powering the capture computer if it moves, such as deploying the system in a car.
 
@@ -65,11 +65,14 @@ On capture computer:
     # airmon-ng start wlan1
     ```
 3. Run `# python3 dot11hunter.py -i wlan1 ` . If it works, you will see 
+<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/capture_computer_synchronized1.png">
 
-4. On Android phone, start Dot11Hunter, search your capture computer and connect to it. If everything works fine, you will see
-<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/android_dot11hunter.png">
 
-If every thing works fine, the capture computer and Android phone would show as the pictures.
+4. On Android phone, start Dot11Hunter, search your capture computer and connect to it. If it works, you will see
+<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/android_dot11hunter1.png">
+
+If everything works fine, the capture computer will show 
+<img src="https://github.com/SecHeart/Dot11Hunter/blob/master/pictures/capture_computer_start1.png">
 
 
 ## License

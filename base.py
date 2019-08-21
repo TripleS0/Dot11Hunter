@@ -84,12 +84,31 @@ class Dot11HunterUtils:
             'password': CFG['MYSQL']['password'],
             'database': CFG['MYSQL']['database'],
             'connection_timeout': 180,
-            'use_pure': True
+            'use_pure': True,
+            'autocommit': True
         }
         db_conn = mysql.connector.connect(**config)
         db_cursor = db_conn.cursor()
         return db_conn, db_cursor
 
+    @staticmethod
+    def is_cache_fresh(key, timestamp, cache, threshold, lock):
+        result = False
+        lock.acquire()
+        # print('lock acquire')
+        if key in cache.keys():
+            delta = timestamp - cache[key]
+            # Ignore the event not fresher enough
+            if delta.days < 0 or \
+                    (delta.days >= 0 and delta.seconds <= threshold):
+                lock.release()
+                return result
+        result = True
+        cache[key] = timestamp
+        # print('done')
+        lock.release()
+        # print('lock release')
+        return result
 
 CFG = configparser.ConfigParser(
     interpolation=configparser.ExtendedInterpolation())

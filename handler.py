@@ -1,18 +1,22 @@
 import queue
-from base import Dot11HunterBase, FrameSubType, logger
+from base import Dot11HunterBase, FrameSubType, logger, CFG
 from scapy.all import *
 from event import EventHandler, Dot11Event
 
 
 # Create handler threads to process frames
-def create_handlers(frm_queues, event_queue):
+def create_handlers(frm_queues, event_queue, caches=None, cache_update_lock=None):
     result = list()
     result.append(BeaconHandler(frm_queues['beacon'], event_queue))
     result.append(ProbeReqHandler(frm_queues['probe_req'], event_queue))
     result.append(MgmtHandler(frm_queues['mgmt'], event_queue))
     result.append(CtrlHandler(frm_queues['ctrl'], event_queue))
     result.append(DataHandler(frm_queues['data'], event_queue))
-    result.append(EventHandler(event_queue=event_queue))
+    for i in range(CFG['DEFAULT'].getint('num_event_handlers')):
+        result.append(EventHandler(event_queue=event_queue,
+                                   name='EventHandler{}'.format(i),
+                                   caches=caches,
+                                   cache_update_lock=cache_update_lock))
     return result
 
 
@@ -50,47 +54,81 @@ class HandlerBase(Dot11HunterBase):
             ssid_origin = kwargs['ssid_origin']
         else:
             ssid_origin = None
+        # events related to the same entity such as MAC or association should
+        # be handled by only one EventHandle because their sequence make sense
+        temp_events_group = []
         if MAC:
-            self.event_queue.put_nowait(Dot11Event(src=kwargs['src'],
+            # self.event_queue.put_nowait(Dot11Event(src=kwargs['src'],
+            #                                        timestamp=ts,
+            #                                        type=Dot11Event.MAC,
+            #                                        origin=kwargs[
+            #                                            'mac_origin']))
+            temp_events_group.append(Dot11Event(src=kwargs['src'],
                                                    timestamp=ts,
                                                    type=Dot11Event.MAC,
                                                    origin=kwargs[
                                                        'mac_origin']))
             if 'dst' in kwargs and kwargs['dst'] is not None:
-                self.event_queue.put_nowait(
-                    # Here dst mac is assigned to src for the convenience of
-                    # event.handle_mac
-                    Dot11Event(src=kwargs['dst'],
-                               timestamp=ts,
-                               type=Dot11Event.MAC,
-                               origin=kwargs[
-                                   'mac_origin']))
+                # Here dst mac is assigned to src for the convenience of
+                # event.handle_mac
+                # self.event_queue.put_nowait(
+                #     Dot11Event(src=kwargs['dst'],
+                #                timestamp=ts,
+                #                type=Dot11Event.MAC,
+                #                origin=kwargs[
+                #                    'mac_origin']))
+                temp_events_group.append(Dot11Event(src=kwargs['dst'],
+                                                    timestamp=ts,
+                                                    type=Dot11Event.MAC,
+                                                    origin=kwargs[
+                                                        'mac_origin']))
         if GEO:
-            self.event_queue.put_nowait(
-                Dot11Event(src=kwargs['src'],
-                           timestamp=ts,
-                           geo=kwargs['geo'],
-                           type=Dot11Event.GEO))
+            # self.event_queue.put_nowait(
+            #     Dot11Event(src=kwargs['src'],
+            #                timestamp=ts,
+            #                geo=kwargs['geo'],
+            #                type=Dot11Event.GEO))
+            temp_events_group.append(Dot11Event(src=kwargs['src'],
+                                                timestamp=ts,
+                                                geo=kwargs['geo'],
+                                                type=Dot11Event.GEO))
             if 'dst' in kwargs and kwargs['dst'] is not None:
-                self.event_queue.put_nowait(
+                # self.event_queue.put_nowait(
+                #     Dot11Event(src=kwargs['dst'],
+                #                timestamp=ts,
+                #                geo=kwargs['geo'],
+                #                type=Dot11Event.GEO))
+                temp_events_group.append(
                     Dot11Event(src=kwargs['dst'],
                                timestamp=ts,
                                geo=kwargs['geo'],
                                type=Dot11Event.GEO))
         if SSID:
-            self.event_queue.put_nowait(
-                Dot11Event(src=kwargs['src'],
-                           ssid=kwargs['ssid'],
-                           timestamp=ts,
-                           type=Dot11Event.SSID,
-                           origin=ssid_origin))
+            # self.event_queue.put_nowait(
+            #     Dot11Event(src=kwargs['src'],
+            #                ssid=kwargs['ssid'],
+            #                timestamp=ts,
+            #                type=Dot11Event.SSID,
+            #                origin=ssid_origin))
+            temp_events_group.append(Dot11Event(src=kwargs['src'],
+                                                ssid=kwargs['ssid'],
+                                                timestamp=ts,
+                                                type=Dot11Event.SSID,
+                                                origin=ssid_origin))
         if ASSOCIATION:
-            self.event_queue.put_nowait(
-                Dot11Event(src=kwargs['src'],
-                           dst=kwargs['dst'],
-                           ssid=kwargs['ssid'],
-                           timestamp=ts,
-                           type=Dot11Event.ASSOCIATION))
+            # self.event_queue.put_nowait(
+            #     Dot11Event(src=kwargs['src'],
+            #                dst=kwargs['dst'],
+            #                ssid=kwargs['ssid'],
+            #                timestamp=ts,
+            #                type=Dot11Event.ASSOCIATION))
+            temp_events_group.append(Dot11Event(src=kwargs['src'],
+                                                dst=kwargs['dst'],
+                                                ssid=kwargs['ssid'],
+                                                timestamp=ts,
+                                                type=Dot11Event.ASSOCIATION))
+        if temp_events_group:
+            self.event_queue.put_nowait(temp_events_group)
 
     def parse_frame(self, frame):
         pass
@@ -114,12 +152,14 @@ class BeaconHandler(HandlerBase):
         ssid = self.extract_ssid(frame)
         ssid_origin = 'from_beacon'
         mac_origin = 'from_mgmt'
-        self.put_events(ts, MAC=True, GEO=True, src=src, mac_origin=mac_origin,
-                        geo=geo)
         if ssid is None:
-            return
-        self.put_events(ts, SSID=True, src=src, ssid=ssid,
-                        ssid_origin=ssid_origin)
+            self.put_events(ts, MAC=True, GEO=True, src=src,
+                            mac_origin=mac_origin,
+                            geo=geo)
+        else:
+            self.put_events(ts, MAC=True, GEO=True, SSID=True, src=src,
+                            ssid=ssid, mac_origin=mac_origin,
+                            ssid_origin=ssid_origin, geo=geo)
 
 
 class ProbeReqHandler(HandlerBase):
@@ -135,10 +175,10 @@ class ProbeReqHandler(HandlerBase):
         src = frame.payload.addr2
         ssid = self.extract_ssid(frame)
         if ssid:
-            self.put_events(ts, SSID=True, src=None, ssid=ssid,
-                            ssid_origin=ssid_origin)
+            # self.put_events(ts, SSID=True, src=None, ssid=ssid,
+            #                 ssid_origin=ssid_origin)
             self.put_events(ts, MAC=True, GEO=True, ASSOCIATION=True,
-                            src=src, dst=None, ssid=ssid,
+                            SSID=True, src=src, dst=None, ssid=ssid,
                             mac_origin=mac_origin, ssid_origin=ssid_origin,
                             geo=geo)
         else:
